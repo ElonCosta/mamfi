@@ -19,28 +19,24 @@ impl AppState {
 
         let mut command = Mode::None;
         let mut command_options = CommandOptions(0);
-        let mut ignore_options = false;
         let mut args = VecDeque::new();
 
-        for arg in iter {
-            for arg_type in extract_args(arg, ignore_options) {
-                let arg_type = arg_type?;
+        for arg in extract_args(iter) {
+            let arg_type = arg?;
 
-                match arg_type {
-                    ArgType::IgnoreOptions => ignore_options = true,
-                    ArgType::Command(mode) => command = mode,
-                    ArgType::Option(app_options) => command_options |= app_options,
-                    ArgType::Arg(arg) => args.push_back(arg),
-                }
+            match arg_type {
+                ArgType::Command(mode) => command = mode,
+                ArgType::Option(app_options) => command_options |= app_options,
+                ArgType::Arg(arg) => args.push_back(arg),
             }
         }
 
         let command = match command {
             Mode::Help => Command::Help,
+            Mode::List => Command::List,
             Mode::Add => build_add_command(&mut args)?,
             Mode::Set => build_set_command(&mut args, &command_options)?,
             Mode::None | Mode::Load => build_load_command(&mut args)?,
-            Mode::List => Command::List,
         };
 
         let root_dir = get_root_dir(&command, &command_options)?;
@@ -56,7 +52,6 @@ impl AppState {
 }
 
 enum ArgType {
-    IgnoreOptions,
     Command(Mode),
     Option(AppOptions),
     Arg(String),
@@ -85,47 +80,49 @@ enum ExtractArgsError {
     UnknownOption(char),
 }
 
-fn extract_args(
-    arg: String,
-    ignore_options: bool,
-) -> impl Iterator<Item = Result<ArgType, ExtractArgsError>> {
-    gen move {
-        if !ignore_options && arg == "--" {
-            yield Ok(ArgType::IgnoreOptions);
-        } else if !ignore_options && arg.starts_with("--") {
-            yield try {
-                let mode = match arg.as_str() {
-                    "--help" => Mode::Help,
-                    "--add" => Mode::Add,
-                    "--set" => Mode::Set,
-                    "--list" => Mode::List,
-                    "--replace" => Mode::Load,
-                    _ => Err(ExtractArgsError::UnknownCommand(arg))?,
-                };
-
-                ArgType::Command(mode)
-            };
-        } else if !ignore_options && arg.starts_with('-') {
-            for option in arg.into_chars() {
+gen fn extract_args<T>(iter: T) -> Result<ArgType, ExtractArgsError>
+where
+    T: Iterator<Item = String>,
+{
+    let mut ignore_options = false;
+    for arg in iter {
+        match arg.as_str() {
+            "--" if !ignore_options => ignore_options = true,
+            a if a.starts_with("--") && !ignore_options => {
                 yield try {
-                    match option {
-                        '-' => continue,
-                        'h' => ArgType::Command(Mode::Help),
-                        'a' => ArgType::Command(Mode::Add),
-                        's' => ArgType::Command(Mode::Set),
-                        'l' => ArgType::Command(Mode::List),
-                        'd' => ArgType::Option(AppOptions::CurrentDirAsRoot),
-                        'L' => ArgType::Option(AppOptions::AsSymLink),
-                        'C' => ArgType::Option(AppOptions::AsCopy),
-                        'S' => ArgType::Option(AppOptions::Silent),
-                        'V' => ArgType::Option(AppOptions::Verbose),
-                        _ => Err(ExtractArgsError::UnknownOption(option))?,
+                    let mode = match a {
+                        "--help" => Mode::Help,
+                        "--add" => Mode::Add,
+                        "--set" => Mode::Set,
+                        "--list" => Mode::List,
+                        "--replace" => Mode::Load,
+                        _ => Err(ExtractArgsError::UnknownCommand(arg))?,
+                    };
+
+                    ArgType::Command(mode)
+                }
+            }
+            a if a.starts_with('-') && !ignore_options => {
+                for option in arg.into_chars() {
+                    yield try {
+                        match option {
+                            '-' => continue,
+                            'h' => ArgType::Command(Mode::Help),
+                            'a' => ArgType::Command(Mode::Add),
+                            's' => ArgType::Command(Mode::Set),
+                            'l' => ArgType::Command(Mode::List),
+                            'd' => ArgType::Option(AppOptions::CurrentDirAsRoot),
+                            'L' => ArgType::Option(AppOptions::AsSymLink),
+                            'C' => ArgType::Option(AppOptions::AsCopy),
+                            'S' => ArgType::Option(AppOptions::Silent),
+                            'V' => ArgType::Option(AppOptions::Verbose),
+                            _ => Err(ExtractArgsError::UnknownOption(option))?,
+                        }
                     }
                 }
             }
-        } else {
-            yield Ok(ArgType::Arg(arg));
-        }
+            _ => yield Ok(ArgType::Arg(arg)),
+        };
     }
 }
 
