@@ -1,7 +1,6 @@
 #![feature(gen_blocks, try_blocks, string_into_chars)]
 mod binary_data;
 mod cli;
-mod args;
 mod data;
 mod macros;
 mod result;
@@ -17,9 +16,8 @@ use std::{
 };
 
 use crate::{
-    args::{AddArgs, LoadArgs, SetArgs, SetKind},
-    data::*,
-    result::AppError,
+    cli::{AddArgs, AppState, Command, CommandOptions, LoadArgs, SetFileArgs},
+    data::{FileData, load_file_data, save_file_data},
     result::{AppError, Success, UpdateType},
 };
 
@@ -31,116 +29,228 @@ trait_alias! {
     PathRef: AsRef<Path> + Debug
 }
 
+/// Adds file alias to mmf, if new_file is provided copies the content of {file} to new_file
+fn add_file_alias(
+    data: &mut FileData,
+    AddArgs {
+        alias,
+        file,
+        new_file,
+    }: AddArgs,
+    options: CommandOptions,
+) -> AppResult {
+    let FileData { root_dir, data, .. } = data;
+
+    let added_file = new_file.as_ref().unwrap_or(&file);
+
+    let (file_parent, file_name) = get_dir_and_name(added_file)?;
+
+    let file_name = if let Some(file_name) = file_name
+        && &file_parent == root_dir
+    {
+        file_name
+    } else {
+        added_file.into()
+    };
+
+    data.insert(alias.clone(), file_name.clone());
+
+    let Some(new_file) = new_file else {
+        return Ok(Success::DataUpdated(UpdateType::Added(alias, file_name)));
+    };
+
+    if !fs::exists(&file)? {
+        return Err(AppError::FileNotFound(file));
     }
+
+    if options.as_sym_link() {
+        link_file(file, &new_file)?;
+    } else {
+        copy_file(file, &new_file)?;
+    }
+
+    Ok(Success::DataUpdated(UpdateType::Added(alias, new_file)))
 }
 
+fn load_file_alias(
+    data: &FileData,
+    LoadArgs { alias, file }: LoadArgs,
+    options: CommandOptions,
+) -> AppResult {
+    let FileData {
+        root_dir,
+        data,
+        set_file,
+        as_sym_link,
+        ..
+    } = data;
 
-impl FileData {
-    /// Adds file alias to mmf, if new_file is provided copies the content of {file} to new_file
-    fn add_file_alias(
-        &mut self,
-        AddArgs {
-            alias,
-            file,
-            new_file,
-        }: AddArgs,
-    ) -> AppResult {
-        let added_file = new_file.unwrap_or(file);
+    let Some(Ok(target_file)) = file.or(set_file.clone()).map(path::absolute) else {
+        Err(AppError::NoFileSet)?
+    };
 
-        self.data.insert(alias.to_string(), added_file.to_string());
-
-        let Some(new_file) = new_file else {
-            return Ok(Success::FileAdded);
-        };
-
-        if !fs::exists(file)? {
-            return Err(AppError::InexistentFile(file.into()));
-        }
-
-        fs::copy(file, new_file)?;
-
-        Ok(Success::FileSaved)
+    if !fs::exists(&target_file)? {
+        Err(AppError::FileNotFound(format!(
+            "{:?}",
+            target_file.file_name().unwrap()
+        )))?
     }
 
-    fn load_file_alias(&mut self, LoadArgs { alias, file }: LoadArgs) -> AppResult {
-        let Some(target_file) = file.or(self.set_file.as_ref()) else {
-            return Err(AppError::NoFileSet);
-        };
+    let Some(aliased_file) = data.get(&alias) else {
+        Err(AppError::AliasNotFound(alias))?
+    };
 
-        if !fs::exists(target_file)? {
-            return Err(AppError::InexistentFile(target_file.into()));
-        }
+    let aliased_path = root_dir.join(aliased_file);
 
-        let Some(aliased_file) = self.data.get(alias) else {
-            return Err(AppError::AliasNotFound(alias.into()));
-        };
-
-        fs::copy(aliased_file, target_file)?;
-
-        println!("Replaced {} with {}", target_file, aliased_file);
-
-        Ok(Success::FileLoaded)
+    if aliased_path == target_file {
+        Err(AppError::InvalidReplace(format!(
+            "{:?}",
+            target_file.file_name().unwrap()
+        )))?
     }
 
-    fn set_file(&mut self, SetArgs { file, kind }: SetArgs) -> AppResult {
-        if !fs::exists(file)? {
-            return Err(AppError::InexistentFile(file.into()));
+    let success = if (*as_sym_link || options.as_sym_link()) && !options.as_copy() {
+        link_file(aliased_path, &target_file)?;
+
+        Success::FileLinked(
+            format!("{:?}", target_file.file_name().unwrap()),
+            format!("{:?}", aliased_file),
+        )
+    } else {
+        if target_file.is_symlink() {
+            fs::remove_file(&target_file)?;
         }
 
-        self.set_file = Some(file.to_string());
+        copy_file(aliased_path, &target_file)?;
 
-        if let SetKind::Load { alias } = kind {
-            _ = self.load_file_alias(LoadArgs {
-                alias,
-                file: Some(file),
-            })?;
-        }
+        Success::FileReplaced(
+            format!("{:?}", target_file.file_name().unwrap()),
+            format!("{:?}", aliased_file),
+        )
+    };
 
-        Ok(Success::DataFileUpdated)
+    Ok(success)
+}
+
+fn set_default_file(data: &mut FileData, SetFileArgs { file }: SetFileArgs) -> AppResult {
+    if !fs::exists(&file)? {
+        return Err(AppError::FileNotFound(file));
     }
+
+    data.set_file = Some(file.clone());
+
+    Ok(Success::DataUpdated(UpdateType::SetDefaultFile(file)))
+}
+
+fn set_flags(data: &mut FileData, options: CommandOptions) -> AppResult {
+    if options.as_sym_link() && !options.as_copy() {
+        data.as_sym_link = true;
+    }
+
+    if options.as_copy() {
+        data.as_sym_link = false;
+    }
+
+    if options.silent() && !options.verbose() {
+        data.silent = true;
+    }
+
+    if options.verbose() {
+        data.silent = false;
+    }
+
+    Ok(Success::DataUpdated(UpdateType::SetDefaultOptions))
 }
 
 fn main() -> AppResult {
-    let args: Vec<String> = env::args().collect();
+    let AppState {
+        command,
+        command_options,
+        root_dir,
+    }: AppState = AppState::new(env::args())?;
 
-    let mut file_data = load_file_data();
+    let mut data = load_file_data(root_dir)?;
 
-    let Some(mode) = args.get(1) else {
-        return print_help();
+    let is_silent = data.is_silent(&command_options) && !command.overrides_silent();
+
+    let result = try {
+        let success = match command {
+            Command::Help => Success::HelpDisplayed,
+            Command::Add(add_args) => add_file_alias(&mut data, add_args, command_options)?,
+            Command::SetFile(set_file_args, None) => {
+                set_flags(&mut data, command_options)?;
+
+                set_default_file(&mut data, set_file_args)?
+            }
+            Command::SetFile(set_file_args, Some(load_args)) => {
+                load_file_alias(&data, load_args, command_options)?;
+
+                set_default_file(&mut data, set_file_args)?
+            }
+            Command::SetFlags => set_flags(&mut data, command_options)?,
+            Command::Load(load_args) => load_file_alias(&data, load_args, command_options)?,
+            Command::List => todo!(),
+        };
+
+        if matches!(success, Success::DataUpdated(_)) {
+            save_file_data(data)?;
+        }
+
+        success
     };
 
-    let result = match mode.as_str() {
-        "--help" | "-h" => print_help(),
-        "--add" | "-a" => file_data.add_file_alias(args[2..].try_into()?),
-        "--set" | "-s" => file_data.set_file(args[2..].try_into()?),
-        _ if !mode.starts_with("-") => file_data.load_file_alias(args[1..].into()),
-        _ => Err(AppError::UnknownOption(mode.into())),
-    }?;
-
-    if let Success::FileLoaded | Success::HelpDisplayed = result {
-        return Ok(result);
+    if is_silent {
+        return Ok(Success::Silent);
     }
 
-    save_file_data(file_data)
+    result
 }
 
-fn print_help() -> AppResult {
-    println!(
-        r"
-    Usage: mmf [OPTIONS] <ALIAS> [FILE]
-    Replaces FILE with a previously ALIASed file;
-    if FILE is not provided uses the default --set file.
+fn parent_dir<P: PathRef>(file: Option<&P>) -> io::Result<PathBuf> {
+    let parent_dir = file
+        .map(AsRef::as_ref)
+        .and_then(Path::parent)
+        .unwrap_or(Path::new(""));
 
-    [OPTIONS]
-    -h, --help
-        Displays this help.
-    -a, --add <ALIAS> <FILE> [NEW_FILE]
-        Adds an ALIAS for FILE, if NEW_FILE is provided copies FILE content
-        into NEW_FILE and then alias NEW_FILE instead.
-    -s, --set [ALIAS] <FILE>
-        Sets FILE as the default file to be replaced by mmf, if ALIAS is provided
-        replaces FILE with the ALIASed file.
-        "
-    );
-    Ok(Success::HelpDisplayed)
+    let dir = if parent_dir.is_absolute() {
+        fs::canonicalize(parent_dir)?
+    } else {
+        env::current_dir()?
+    };
+
+    Ok(dir)
+}
+
+fn get_dir_and_name<P: PathRef>(file: P) -> io::Result<(PathBuf, Option<String>)> {
+    let dir = parent_dir(Some(&file))?;
+
+    let file_name = file
+        .as_ref()
+        .file_name()
+        .and_then(OsStr::to_str)
+        .map(str::to_string);
+
+    Ok((dir, file_name))
+}
+
+fn link_file<F: PathRef, T: PathRef>(from: F, to: T) -> result::Result<()> {
+    fs::remove_file(&to)?;
+
+    match unix::fs::symlink(&from, to) {
+        Err(e) => match e.kind() {
+            NotFound => Err(AppError::FileNotFound(format!("{from:?}"))),
+            _ => Err(e.into()),
+        },
+        Ok(_) => Ok(()),
+    }
+}
+
+fn copy_file<F: PathRef, T: PathRef>(from: F, to: T) -> result::Result<()> {
+    match fs::copy(&from, to) {
+        Err(e) => match e.kind() {
+            NotFound => Err(AppError::FileNotFound(format!("{from:?}"))),
+            _ => Err(e.into()),
+        },
+        Ok(_) => Ok(()),
+    }
 }

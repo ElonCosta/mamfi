@@ -1,0 +1,41 @@
+Usage: mmf [COMMAND] [OPTIONS]... <ALIAS> [FILE]
+Replaces FILE with a previously ALIASed file;
+if FILE is not provided uses the default file defined by the SET command.
+
+    [COMMANDS]
+    -h, --help
+            Displays this help.
+    -a, --add <ALIAS> <FILE> [NEW_FILE]
+            Adds an ALIAS for FILE, if NEW_FILE is provided copies FILE content
+            into NEW_FILE and then alias NEW_FILE instead.
+    -s, --set [ALIAS] <FILE>
+            Sets FILE as the default file to be replaced by mmf, if ALIAS is provided
+            replaces FILE with the ALIASed file.
+            - Can be used to set default OPTIONS but if ALIAS is provided those are
+              ignored by set and are instead used as OPTIONS for replace operation 
+    -l, --list[=DATA]
+            Lists all alised files or specific DATA = [ALIAS, FILES]
+    -r, --replace <ALIAS> [FILE]
+            Default cli behaviour.
+
+    [OPTIONS]
+    -d
+           By default mmf uses FILE's parent dir as root, if this option is passed uses 
+           current dir as root, this is useful when aliasing files outside current dir.
+    -L
+            Replaces FILE with a sym-link of ALIASed file.
+            - When used with SET makes this the default behaviour.
+            - When used with ADD it's a noop unless NEW_FILE is provided, then creates
+              a sym-link to FILE
+    -C
+            Replaces FILE with a copy of ALIASed file.
+            - This is the default behaviour, usually used with SET to disable default sym-link.
+    -S,                      
+            Silence all messages.
+            - When used with SET turns on silent mode.
+    -V,                      
+            Prints all messages.
+            - This is the default behaviour, usually used with SET to disable silent mode.
+
+To add an alias or file whose name starts with '-', eg. '-alias' or '-file.txt',
+use -- after options are passed, like so 'mmf -a -- -alias -file.txt
