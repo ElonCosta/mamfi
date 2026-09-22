@@ -1,3 +1,6 @@
+#![feature(gen_blocks, try_blocks, string_into_chars)]
+mod binary_data;
+mod cli;
 mod args;
 mod data;
 mod result;
@@ -11,26 +14,18 @@ use crate::{
     args::{AddArgs, LoadArgs, SetArgs, SetKind},
     data::*,
     result::AppError,
+    result::{AppError, Success, UpdateType},
 };
 
 const FILE_NAME: &str = ".mmf";
+const HELP_TEXT: &str = include_str!("../texts/help.txt");
 
-enum Success {
-    FileAdded,
-    FileSaved,
-    FileLoaded,
-    DataFileUpdated,
-    DataSaved,
-    HelpDisplayed,
+type AppResult = result::Result<Success>;
 }
 
-impl Termination for Success {
-    fn report(self) -> std::process::ExitCode {
-        ExitCode::SUCCESS
     }
 }
 
-type AppResult = result::Result<Success>;
 
 impl FileData {
     /// Adds file alias to mmf, if new_file is provided copies the content of {file} to new_file
