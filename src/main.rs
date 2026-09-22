@@ -3,11 +3,17 @@ mod binary_data;
 mod cli;
 mod args;
 mod data;
+mod macros;
 mod result;
 
 use std::{
-    env, fs,
-    process::{ExitCode, Termination},
+    env,
+    ffi::OsStr,
+    fmt::Debug,
+    fs,
+    io::{self, ErrorKind::NotFound},
+    os::unix,
+    path::{self, Path, PathBuf},
 };
 
 use crate::{
@@ -21,6 +27,8 @@ const FILE_NAME: &str = ".mmf";
 const HELP_TEXT: &str = include_str!("../texts/help.txt");
 
 type AppResult = result::Result<Success>;
+trait_alias! {
+    PathRef: AsRef<Path> + Debug
 }
 
     }
