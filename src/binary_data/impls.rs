@@ -8,11 +8,12 @@ impl<W: Write> BinaryWritter for BufWriter<W> {
     }
 }
 impl BinaryType {
+    // TODO: Find a better way to do this.
     fn discriminant(&self) -> u8 {
         match self {
-            BinaryType::SetFile(_) => 1,
-            BinaryType::AliasEntry(_) => 2,
-            BinaryType::Flags { .. } => 3,
+            BinaryType::SetFile(_) => 0,
+            BinaryType::AliasEntry(_) => 1,
+            BinaryType::Flags { .. } => 2,
         }
     }
 
