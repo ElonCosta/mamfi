@@ -1,9 +1,9 @@
 use std::{
     collections::VecDeque,
     env::{self, Args},
-    fs,
     ops::{BitAnd, BitOrAssign},
     path::PathBuf,
+    rc::Rc,
 };
 
 use crate::{
@@ -133,10 +133,10 @@ fn build_add_command(args: &mut VecDeque<String>) -> result::Result<Command> {
         Err(AppError::TooManyArgs("add", args.len()))?;
     }
 
-    let alias = args.pop_front().unwrap();
-    let file = args.pop_front().unwrap();
+    let alias = args.pop_front().map(Rc::from).unwrap();
+    let file = args.pop_front().map(Rc::from).unwrap();
 
-    let new_file = args.pop_front();
+    let new_file = args.pop_front().map(Rc::from);
 
     Ok(Command::Add(AddArgs {
         alias,
@@ -159,8 +159,8 @@ fn build_set_command(
         Err(AppError::TooManyArgs("set", args.len()))?;
     }
 
-    let file = args.pop_back().unwrap();
-    let alias = args.pop_front();
+    let file: Rc<str> = args.pop_back().map(Rc::from).unwrap();
+    let alias = args.pop_front().map(Rc::from);
 
     Ok(Command::SetFile(
         SetFileArgs { file: file.clone() },
@@ -178,8 +178,8 @@ fn build_load_command(args: &mut VecDeque<String>) -> result::Result<Command> {
         Err(AppError::TooManyArgs("replace", args.len()))?;
     }
 
-    let alias = args.pop_front().unwrap();
-    let file = args.pop_front();
+    let alias = args.pop_front().map(Rc::from).unwrap();
+    let file = args.pop_front().map(Rc::from);
 
     Ok(Command::Load(LoadArgs { alias, file }))
 }
@@ -188,20 +188,16 @@ fn get_root_dir(command: &Command, command_options: &CommandOptions) -> result::
     let root_dir = if command_options.current_dir_as_root() {
         env::current_dir()?
     } else {
-        let parent_dir = parent_dir(command.ref_file())?;
+        let ref_file = command.ref_file();
 
-        if parent_dir.is_absolute() {
-            fs::canonicalize(parent_dir)?
-        } else {
-            env::current_dir()?
-        }
+        parent_dir(ref_file)?
     };
 
     Ok(root_dir)
 }
 
 impl Command {
-    fn ref_file(&self) -> Option<&String> {
+    fn ref_file(&self) -> Option<&str> {
         match self {
             Command::Add(AddArgs { file, .. })
             | Command::SetFile(SetFileArgs { file }, _)

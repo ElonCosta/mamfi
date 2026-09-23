@@ -1,4 +1,7 @@
-use std::io::{self, BufRead, BufReader, BufWriter, Write};
+use std::{
+    io::{self, BufRead, BufReader, BufWriter, Write},
+    rc::Rc,
+};
 
 use crate::binary_data::{BinaryContainer, BinaryReader, BinaryType, BinaryWritter};
 
@@ -76,13 +79,19 @@ impl<B: BufRead> Iterator for BinaryContainer<B> {
 
         let data = match ident {
             0 => {
-                let set_file = String::from_utf8(next_value!(str; self.buf)).ok()?;
+                let set_file = str::from_utf8(&next_value!(str; self.buf))
+                    .map(Rc::from)
+                    .ok()?;
 
                 BinaryType::SetFile(set_file)
             }
             1 => {
-                let alias = String::from_utf8(next_value!(str; self.buf)).ok()?;
-                let path = String::from_utf8(next_value!(str; self.buf)).ok()?;
+                let alias = str::from_utf8(&next_value!(str; self.buf))
+                    .map(Rc::from)
+                    .ok()?;
+                let path = str::from_utf8(&next_value!(str; self.buf))
+                    .map(Rc::from)
+                    .ok()?;
 
                 BinaryType::AliasEntry((alias, path))
             }

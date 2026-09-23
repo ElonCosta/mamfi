@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, rc::Rc};
 
 mod impls;
 mod types;
@@ -22,20 +22,20 @@ pub enum Command {
 
 #[derive(Debug)]
 pub struct AddArgs {
-    pub alias: String,
-    pub file: String,
-    pub new_file: Option<String>,
+    pub alias: Rc<str>,
+    pub file: Rc<str>,
+    pub new_file: Option<Rc<str>>,
 }
 
 #[derive(Debug)]
 pub struct SetFileArgs {
-    pub file: String,
+    pub file: Rc<str>,
 }
 
 #[derive(Debug)]
 pub struct LoadArgs {
-    pub alias: String,
-    pub file: Option<String>,
+    pub alias: Rc<str>,
+    pub file: Option<Rc<str>>,
 }
 #[repr(u8)]
 pub enum AppOptions {

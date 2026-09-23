@@ -13,6 +13,7 @@ use std::{
     io::{self, ErrorKind::NotFound},
     os::unix,
     path::{self, Path, PathBuf},
+    rc::Rc,
 };
 
 use crate::{
@@ -41,7 +42,8 @@ fn add_file_alias(
 ) -> AppResult {
     let FileData { root_dir, data, .. } = data;
 
-    let added_file = new_file.as_ref().unwrap_or(&file);
+    let added_file: &str = &new_file.clone().unwrap_or(file.clone());
+    let file: &str = &file;
 
     let (file_parent, file_name) = get_dir_and_name(added_file)?;
 
@@ -59,17 +61,20 @@ fn add_file_alias(
         return Ok(Success::DataUpdated(UpdateType::Added(alias, file_name)));
     };
 
-    if !fs::exists(&file)? {
-        return Err(AppError::FileNotFound(file));
+    if !fs::exists(file)? {
+        return Err(AppError::FileNotFound(file.to_string()));
     }
 
     if options.as_sym_link() {
-        link_file(file, &new_file)?;
+        link_file(file, new_file.as_ref())?;
     } else {
-        copy_file(file, &new_file)?;
+        copy_file(file, new_file.as_ref())?;
     }
 
-    Ok(Success::DataUpdated(UpdateType::Added(alias, new_file)))
+    Ok(Success::DataUpdated(UpdateType::Added(
+        alias,
+        new_file.clone(),
+    )))
 }
 
 fn load_file_alias(
@@ -85,36 +90,49 @@ fn load_file_alias(
         ..
     } = data;
 
-    let Some(Ok(target_file)) = file.or(set_file.clone()).map(path::absolute) else {
+    let Some(target_file) = file.or(set_file.clone()) else {
+        Err(AppError::NoFileSet)?
+    };
+    let Ok(target_file) = path::absolute(target_file.as_ref()) else {
         Err(AppError::NoFileSet)?
     };
 
     if !fs::exists(&target_file)? {
-        Err(AppError::FileNotFound(format!(
-            "{:?}",
-            target_file.file_name().unwrap()
-        )))?
+        Err(AppError::FileNotFound(
+            target_file
+                .file_name()
+                .and_then(OsStr::to_str)
+                .map(str::to_string)
+                .unwrap(),
+        ))?
     }
 
     let Some(aliased_file) = data.get(&alias) else {
         Err(AppError::AliasNotFound(alias))?
     };
 
-    let aliased_path = root_dir.join(aliased_file);
+    let aliased_path = root_dir.join(aliased_file.as_ref());
 
     if aliased_path == target_file {
-        Err(AppError::InvalidReplace(format!(
-            "{:?}",
-            target_file.file_name().unwrap()
-        )))?
+        Err(AppError::InvalidReplace(
+            target_file
+                .file_name()
+                .and_then(OsStr::to_str)
+                .map(Rc::from)
+                .unwrap(),
+        ))?
     }
 
     let success = if (*as_sym_link || options.as_sym_link()) && !options.as_copy() {
         link_file(aliased_path, &target_file)?;
 
         Success::FileLinked(
-            format!("{:?}", target_file.file_name().unwrap()),
-            format!("{:?}", aliased_file),
+            target_file
+                .file_name()
+                .and_then(OsStr::to_str)
+                .map(Rc::from)
+                .unwrap(),
+            aliased_file.clone(),
         )
     } else {
         if target_file.is_symlink() {
@@ -124,8 +142,12 @@ fn load_file_alias(
         copy_file(aliased_path, &target_file)?;
 
         Success::FileReplaced(
-            format!("{:?}", target_file.file_name().unwrap()),
-            format!("{:?}", aliased_file),
+            target_file
+                .file_name()
+                .and_then(OsStr::to_str)
+                .map(Rc::from)
+                .unwrap(),
+            aliased_file.clone(),
         )
     };
 
@@ -133,8 +155,8 @@ fn load_file_alias(
 }
 
 fn set_default_file(data: &mut FileData, SetFileArgs { file }: SetFileArgs) -> AppResult {
-    if !fs::exists(&file)? {
-        return Err(AppError::FileNotFound(file));
+    if !fs::exists(file.as_ref())? {
+        return Err(AppError::FileNotFound(file.to_string()));
     }
 
     data.set_file = Some(file.clone());
@@ -206,11 +228,12 @@ fn main() -> AppResult {
     result
 }
 
-fn parent_dir<P: PathRef>(file: Option<&P>) -> io::Result<PathBuf> {
-    let parent_dir = file
-        .map(AsRef::as_ref)
-        .and_then(Path::parent)
-        .unwrap_or(Path::new(""));
+fn parent_dir<P: PathRef>(file: Option<P>) -> io::Result<PathBuf> {
+    let Some(file) = file else {
+        return env::current_dir();
+    };
+
+    let parent_dir = file.as_ref().parent().unwrap_or(Path::new(""));
 
     let dir = if parent_dir.is_absolute() {
         fs::canonicalize(parent_dir)?
@@ -221,14 +244,14 @@ fn parent_dir<P: PathRef>(file: Option<&P>) -> io::Result<PathBuf> {
     Ok(dir)
 }
 
-fn get_dir_and_name<P: PathRef>(file: P) -> io::Result<(PathBuf, Option<String>)> {
+fn get_dir_and_name<P: PathRef>(file: P) -> io::Result<(PathBuf, Option<Rc<str>>)> {
     let dir = parent_dir(Some(&file))?;
 
     let file_name = file
         .as_ref()
         .file_name()
         .and_then(OsStr::to_str)
-        .map(str::to_string);
+        .map(Rc::from);
 
     Ok((dir, file_name))
 }

@@ -3,18 +3,19 @@ use std::{
     fs::File,
     io::{BufReader, BufWriter},
     path::PathBuf,
+    rc::Rc,
 };
 
 use crate::{
     AppResult, FILE_NAME, Success,
-    cli::CommandOptions,
     binary_data::{BinaryReader, BinaryType, BinaryWritter},
+    cli::CommandOptions,
     result,
 };
 pub struct FileData {
     pub root_dir: PathBuf,
-    pub data: HashMap<String, String>,
-    pub set_file: Option<String>,
+    pub data: HashMap<Rc<str>, Rc<str>>,
+    pub set_file: Option<Rc<str>>,
     pub as_sym_link: bool,
     pub silent: bool,
 }
@@ -26,7 +27,7 @@ impl FileData {
 }
 
 pub fn load_file_data(root_dir: PathBuf) -> result::Result<FileData> {
-    let mut set_file: Option<String> = None;
+    let mut set_file: Option<Rc<str>> = None;
     let mut data = HashMap::new();
     let mut is_sym_link: Option<bool> = None;
     let mut is_silent: Option<bool> = None;

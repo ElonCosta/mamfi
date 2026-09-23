@@ -2,7 +2,7 @@
 mod macros;
 mod impls;
 
-use std::io;
+use std::{io, rc::Rc};
 
 pub trait BinaryWritter {
     fn write_bin(&mut self, value: BinaryType) -> io::Result<()>;
@@ -17,8 +17,8 @@ where
 
 #[derive(Debug)]
 pub enum BinaryType {
-    SetFile(String),
-    AliasEntry((String, String)),
+    SetFile(Rc<str>),
+    AliasEntry((Rc<str>, Rc<str>)),
     Flags { sym_link: bool, silent: bool },
 }
 

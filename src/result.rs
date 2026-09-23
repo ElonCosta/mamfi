@@ -3,10 +3,11 @@ use std::{
     fmt::{Debug, Display},
     io,
     process::{ExitCode, Termination},
+    rc::Rc,
 };
 
 pub enum AppError {
-    AliasNotFound(String),
+    AliasNotFound(Rc<str>),
     IoError(io::Error),
     NoFileSet,
     FileNotFound(String),
@@ -14,7 +15,7 @@ pub enum AppError {
     TooManyArgs(&'static str, usize),
     UnknownOption(String),
     NoArgs,
-    InvalidReplace(String),
+    InvalidReplace(Rc<str>),
 }
 
 impl From<io::Error> for AppError {
@@ -73,8 +74,8 @@ impl Display for Success {
 }
 
 pub enum Success {
-    FileReplaced(String, String),
-    FileLinked(String, String),
+    FileReplaced(Rc<str>, Rc<str>),
+    FileLinked(Rc<str>, Rc<str>),
     DataUpdated(UpdateType),
     DataSaved,
     HelpDisplayed,
@@ -82,8 +83,8 @@ pub enum Success {
 }
 
 pub enum UpdateType {
-    Added(String, String),
-    SetDefaultFile(String),
+    Added(Rc<str>, Rc<str>),
+    SetDefaultFile(Rc<str>),
     SetDefaultOptions,
 }
 
